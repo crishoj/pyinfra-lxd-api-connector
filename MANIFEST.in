@@ -1,2 +1,3 @@
 include CHANGELOG.md
+include smoke_test.py
 recursive-include tests *.py

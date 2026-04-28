@@ -1,6 +1,6 @@
 [project]
 name = "pyinfra-lxd-api-connector"
-version = "0.1.0"
+version = "0.1.1"
 description = "pyinfra connector targeting LXD containers via the LXD HTTPS API (no SSH hop, no CLI subprocess, no websockets)"
 readme = "README.md"
 requires-python = ">=3.10"
