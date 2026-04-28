@@ -46,8 +46,6 @@ from typing import TYPE_CHECKING
 import click
 import httpx
 import yaml
-from typing_extensions import TypedDict, Unpack, override
-
 from pyinfra import logger
 from pyinfra.api.exceptions import ConnectError, InventoryError
 from pyinfra.api.util import get_file_io, memoize
@@ -58,6 +56,7 @@ from pyinfra.connectors.util import (
     extract_control_arguments,
     make_unix_command_for_host,
 )
+from typing_extensions import TypedDict, Unpack, override
 
 if TYPE_CHECKING:
     from pyinfra.api.arguments import ConnectorArguments
@@ -87,9 +86,7 @@ class ConnectorData(TypedDict):
 
 connector_data_meta: dict[str, DataMeta] = {
     "lxd_container": DataMeta("LXD container name"),
-    "lxd_remote": DataMeta(
-        "LXD remote name as configured in `lxc remote list`"
-    ),
+    "lxd_remote": DataMeta("LXD remote name as configured in `lxc remote list`"),
 }
 
 
@@ -228,7 +225,7 @@ class LxdApiConnector(BaseConnector):
     client: httpx.Client | None
     base_url: str
 
-    def __init__(self, state: "State", host: "Host"):
+    def __init__(self, state: State, host: Host):
         super().__init__(state, host)
         self.client = None
         self.base_url = ""
@@ -332,10 +329,10 @@ class LxdApiConnector(BaseConnector):
     @override
     def run_shell_command(
         self,
-        command: "StringCommand",
+        command: StringCommand,
         print_output: bool = False,
         print_input: bool = False,
-        **arguments: Unpack["ConnectorArguments"],
+        **arguments: Unpack[ConnectorArguments],
     ) -> tuple[bool, CommandOutput]:
         if arguments.get("_get_pty"):
             raise NotImplementedError(
@@ -442,11 +439,12 @@ class LxdApiConnector(BaseConnector):
             )
             r.raise_for_status()
         except httpx.HTTPError as e:
-            raise IOError(f"failed to put_file({remote_filename}): {e}") from e
+            raise OSError(f"failed to put_file({remote_filename}): {e}") from e
 
         if print_output:
             click.echo(
-                f"{self.host.print_prefix}file uploaded to container: {remote_filename}",
+                f"{self.host.print_prefix}file uploaded to container: "
+                f"{remote_filename}",
                 err=True,
             )
         return True
@@ -472,14 +470,15 @@ class LxdApiConnector(BaseConnector):
             )
             r.raise_for_status()
         except httpx.HTTPError as e:
-            raise IOError(f"failed to get_file({remote_filename}): {e}") from e
+            raise OSError(f"failed to get_file({remote_filename}): {e}") from e
 
         with get_file_io(filename_or_io, "wb") as file_io:
             file_io.write(r.content)
 
         if print_output:
             click.echo(
-                f"{self.host.print_prefix}file downloaded from container: {remote_filename}",
+                f"{self.host.print_prefix}file downloaded from container: "
+                f"{remote_filename}",
                 err=True,
             )
         return True

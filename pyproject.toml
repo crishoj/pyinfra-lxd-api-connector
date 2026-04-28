@@ -16,6 +16,20 @@ dependencies = [
     "typing_extensions>=4.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/crishoj/pyinfra-lxd-api-connector"
+Issues = "https://github.com/crishoj/pyinfra-lxd-api-connector/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "types-pyyaml",
+    "cryptography>=42",  # for generating throwaway certs in test_load_remote
+]
+
 [project.entry-points."pyinfra.connectors"]
 lxd_api = "pyinfra_lxd_api_connector:LxdApiConnector"
 
@@ -25,3 +39,21 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["pyinfra_lxd_api_connector"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = ["smoke_test.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+files = ["pyinfra_lxd_api_connector.py"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
