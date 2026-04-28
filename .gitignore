@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 env/
+uv.lock
 
 build/
 dist/

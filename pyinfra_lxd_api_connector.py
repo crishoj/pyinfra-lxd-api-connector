@@ -10,7 +10,8 @@ and file transfers.
 
 Inventory syntax:
 
-    @lxd_api/<remote>:<container>   # remote and container, separated by colon
+    @lxd_api/<remote>:<container>   # explicit remote
+    @lxd_api/<container>            # uses `default-remote` from lxc config
 
 Reads remote URL and certs from the standard `lxc` client config
 at `~/.config/lxc/`:
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
 
 
 LXC_CONFIG_DIR = Path(os.path.expanduser("~/.config/lxc"))
+LXC_CONFIG_PATH = LXC_CONFIG_DIR / "config.yml"
 REQUIRED_API_EXTENSIONS = frozenset({"container_exec_recording"})
 
 
@@ -86,6 +88,36 @@ def show_warning() -> None:
     logger.warning("The @lxd_api connector is alpha — feedback welcome.")
 
 
+def _read_lxc_config() -> dict:
+    if not LXC_CONFIG_PATH.exists():
+        raise ConnectError(
+            f"LXD client config not found at {LXC_CONFIG_PATH}; "
+            f"run `lxc remote add` first."
+        )
+    with open(LXC_CONFIG_PATH) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _resolve_default_remote() -> str:
+    """Read `default-remote` from the lxc client config, or raise.
+
+    Mirrors `lxc`'s own behaviour when invoked without a remote
+    qualifier: fall back to whatever the user's `default-remote`
+    points at (typically `local`, or whatever `lxc remote switch`
+    most recently selected).
+    """
+    config = _read_lxc_config()
+    default_remote = config.get("default-remote")
+    if not default_remote:
+        raise InventoryError(
+            f"@lxd_api host given without an explicit remote, "
+            f"and no `default-remote` is set in {LXC_CONFIG_PATH}. "
+            f"Either qualify the host as '<remote>:<container>', "
+            f"or run `lxc remote switch <name>` to set a default."
+        )
+    return default_remote
+
+
 @memoize
 def _load_remote(remote_name: str) -> tuple[str, ssl.SSLContext]:
     """Resolve a remote name to (base_url, ssl_context).
@@ -95,19 +127,12 @@ def _load_remote(remote_name: str) -> tuple[str, ssl.SSLContext]:
     matching the Tailscale / cluster hostname. Trust anchor is the
     pinned cafile, same trust model the `lxc` CLI uses.
     """
-    config_path = LXC_CONFIG_DIR / "config.yml"
-    if not config_path.exists():
-        raise ConnectError(
-            f"LXD client config not found at {config_path}; "
-            f"run `lxc remote add` first."
-        )
-    with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
+    config = _read_lxc_config()
 
     remotes = config.get("remotes") or {}
     if remote_name not in remotes:
         raise ConnectError(
-            f"LXD remote {remote_name!r} not found in {config_path} "
+            f"LXD remote {remote_name!r} not found in {LXC_CONFIG_PATH} "
             f"(known: {sorted(remotes)})"
         )
     remote = remotes[remote_name]
@@ -159,17 +184,16 @@ class LxdApiConnector(BaseConnector):
         if not name:
             raise InventoryError("No LXD container provided!")
 
-        if ":" not in name:
-            raise InventoryError(
-                f"@lxd_api host {name!r} must be in the form "
-                f"'<remote>:<container>' (e.g. 'mycluster:web1'); "
-                f"the remote name must match an entry in `lxc remote list`."
-            )
-        remote, container = name.split(":", 1)
+        if ":" in name:
+            remote, container = name.split(":", 1)
+        else:
+            remote = _resolve_default_remote()
+            container = name
+
         if not remote or not container:
             raise InventoryError(
                 f"@lxd_api host {name!r} must be in the form "
-                f"'<remote>:<container>'."
+                f"'<remote>:<container>' or '<container>'."
             )
 
         show_warning()

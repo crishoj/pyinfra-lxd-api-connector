@@ -48,12 +48,13 @@ Inventory:
 
 ```python
 hosts = [
-    "@lxd_api/mycluster:php01",
+    "@lxd_api/mycluster:php01",       # explicit remote
+    "@lxd_api/web1",                   # uses default-remote from lxc config
     "@lxd_api/some-other-cluster:web1",
 ]
 ```
 
-Hosts must be qualified as `@lxd_api/<remote>:<container>`. The remote name must match an entry in `lxc remote list`.
+A bare `@lxd_api/<container>` resolves the remote via the `default-remote` field in `~/.config/lxc/config.yml` — the same field `lxc` itself consults when called without a remote qualifier. Switch the default with `lxc remote switch <name>`. If no default is set, the connector raises an `InventoryError` pointing you at the qualified form.
 
 ## Requirements
 
