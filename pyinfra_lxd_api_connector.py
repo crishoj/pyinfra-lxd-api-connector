@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import os
 import ssl
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -69,6 +70,15 @@ LXC_CONFIG_DIR = Path(os.path.expanduser("~/.config/lxc"))
 LXC_CONFIG_PATH = LXC_CONFIG_DIR / "config.yml"
 REQUIRED_API_EXTENSIONS = frozenset({"container_exec_recording"})
 
+# Retry policy for connect()-time API calls. A multi-host pyinfra
+# run shouldn't abort a target on the first transient blip — brief
+# 5xx responses or connection resets during cluster-side load are
+# common enough to need backoff. 4xx responses are permanent and
+# fail fast.
+CONNECT_RETRY_ATTEMPTS = 3
+CONNECT_RETRY_INITIAL_DELAY_S = 0.5
+CONNECT_RETRY_MULTIPLIER = 2.0
+
 
 class ConnectorData(TypedDict):
     lxd_container: str
@@ -86,6 +96,51 @@ connector_data_meta: dict[str, DataMeta] = {
 @memoize
 def show_warning() -> None:
     logger.warning("The @lxd_api connector is alpha — feedback welcome.")
+
+
+def _retrying_get(
+    client: httpx.Client,
+    url: str,
+    *,
+    label: str,
+) -> httpx.Response:
+    """GET with exponential backoff on transient errors.
+
+    Retries on `httpx.RequestError` (network-level: timeout,
+    connection reset, DNS) and 5xx responses. Returns the response
+    without calling `raise_for_status()` — the caller decides how
+    to interpret 4xx (some are expected, like 404 = no such
+    container).
+
+    `label` is included in retry log lines for human debugging.
+    """
+    delay = CONNECT_RETRY_INITIAL_DELAY_S
+    for attempt in range(1, CONNECT_RETRY_ATTEMPTS + 1):
+        last_attempt = attempt == CONNECT_RETRY_ATTEMPTS
+        try:
+            response = client.get(url)
+        except httpx.RequestError as e:
+            if last_attempt:
+                raise
+            logger.warning(
+                f"@lxd_api: transient error on GET {label} "
+                f"(attempt {attempt}/{CONNECT_RETRY_ATTEMPTS}): {e}; "
+                f"retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+            delay *= CONNECT_RETRY_MULTIPLIER
+            continue
+        if response.status_code < 500 or last_attempt:
+            return response
+        logger.warning(
+            f"@lxd_api: transient {response.status_code} on GET {label} "
+            f"(attempt {attempt}/{CONNECT_RETRY_ATTEMPTS}); "
+            f"retrying in {delay:.1f}s"
+        )
+        time.sleep(delay)
+        delay *= CONNECT_RETRY_MULTIPLIER
+    # The loop above always returns or raises on the final attempt.
+    raise AssertionError("retry loop exited without returning")
 
 
 def _read_lxc_config() -> dict:
@@ -221,7 +276,7 @@ class LxdApiConnector(BaseConnector):
         )
 
         try:
-            r = self.client.get("/1.0")
+            r = _retrying_get(self.client, "/1.0", label=f"{base_url}/1.0")
             r.raise_for_status()
         except httpx.HTTPError as e:
             self.disconnect()
@@ -243,7 +298,11 @@ class LxdApiConnector(BaseConnector):
             )
 
         try:
-            r = self.client.get(f"/1.0/instances/{container}")
+            r = _retrying_get(
+                self.client,
+                f"/1.0/instances/{container}",
+                label=f"/1.0/instances/{container}",
+            )
         except httpx.HTTPError as e:
             self.disconnect()
             raise ConnectError(f"GET /1.0/instances/{container} failed: {e}") from e
