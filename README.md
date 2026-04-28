@@ -48,13 +48,12 @@ Inventory:
 
 ```python
 hosts = [
-    "@lxd_api/php01",                # uses default remote: microcloud
-    "@lxd_api/microcloud:php01",     # explicit remote name
+    "@lxd_api/mycluster:php01",
     "@lxd_api/some-other-cluster:web1",
 ]
 ```
 
-The default remote is `microcloud` and can be overridden per-host via `@lxd_api/<remote>:<container>`.
+Hosts must be qualified as `@lxd_api/<remote>:<container>`. The remote name must match an entry in `lxc remote list`.
 
 ## Requirements
 

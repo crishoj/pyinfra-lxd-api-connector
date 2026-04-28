@@ -4,8 +4,7 @@
 # ///
 """Smoke test for the @lxd_api connector against a live container.
 
-Run with: `uv run smoke_test.py [<remote>:<container>]`
-Defaults to `microcloud:worker`.
+Run with: `uv run smoke_test.py <remote>:<container>`
 
 Exercises run_shell_command, put_file, get_file. Times each call so
 you can verify the kept-alive connection actually amortizes the
@@ -42,7 +41,10 @@ def time_call(label, fn):
 
 
 def main():
-    target = sys.argv[1] if len(sys.argv) > 1 else "microcloud:worker"
+    if len(sys.argv) != 2 or ":" not in sys.argv[1]:
+        print("usage: uv run smoke_test.py <remote>:<container>", file=sys.stderr)
+        sys.exit(2)
+    target = sys.argv[1]
     remote, container = target.split(":", 1)
 
     host = FakeHost(remote, container)

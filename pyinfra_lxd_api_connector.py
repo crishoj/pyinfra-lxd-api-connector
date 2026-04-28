@@ -10,8 +10,7 @@ and file transfers.
 
 Inventory syntax:
 
-    @lxd_api/<container>            # default remote: microcloud
-    @lxd_api/<remote>:<container>   # explicit remote name
+    @lxd_api/<remote>:<container>   # remote and container, separated by colon
 
 Reads remote URL and certs from the standard `lxc` client config
 at `~/.config/lxc/`:
@@ -65,7 +64,6 @@ if TYPE_CHECKING:
     from pyinfra.api.state import State
 
 
-DEFAULT_LXD_REMOTE = "microcloud"
 LXC_CONFIG_DIR = Path(os.path.expanduser("~/.config/lxc"))
 REQUIRED_API_EXTENSIONS = frozenset({"container_exec_recording"})
 
@@ -78,8 +76,7 @@ class ConnectorData(TypedDict):
 connector_data_meta: dict[str, DataMeta] = {
     "lxd_container": DataMeta("LXD container name"),
     "lxd_remote": DataMeta(
-        f"LXD remote name as configured in `lxc remote list` "
-        f"(default: {DEFAULT_LXD_REMOTE!r})"
+        "LXD remote name as configured in `lxc remote list`"
     ),
 }
 
@@ -162,13 +159,18 @@ class LxdApiConnector(BaseConnector):
         if not name:
             raise InventoryError("No LXD container provided!")
 
-        if ":" in name:
-            remote, container = name.split(":", 1)
-        else:
-            remote, container = DEFAULT_LXD_REMOTE, name
-
-        if not container:
-            raise InventoryError("No LXD container name provided!")
+        if ":" not in name:
+            raise InventoryError(
+                f"@lxd_api host {name!r} must be in the form "
+                f"'<remote>:<container>' (e.g. 'mycluster:web1'); "
+                f"the remote name must match an entry in `lxc remote list`."
+            )
+        remote, container = name.split(":", 1)
+        if not remote or not container:
+            raise InventoryError(
+                f"@lxd_api host {name!r} must be in the form "
+                f"'<remote>:<container>'."
+            )
 
         show_warning()
 
