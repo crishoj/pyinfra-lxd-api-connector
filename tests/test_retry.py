@@ -35,9 +35,7 @@ def test_returns_immediately_on_4xx(no_sleep):
         return httpx.Response(404, json={"error": "no such thing"})
 
     client = make_mock_client(handler)
-    response = _retrying_request(
-        client, "GET", "/1.0/instances/missing", label="test"
-    )
+    response = _retrying_request(client, "GET", "/1.0/instances/missing", label="test")
     assert response.status_code == 404
     assert len(calls) == 1, "4xx must not be retried"
 

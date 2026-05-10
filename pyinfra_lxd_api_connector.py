@@ -306,9 +306,7 @@ class LxdApiConnector(BaseConnector):
         )
 
         try:
-            r = _retrying_request(
-                self.client, "GET", "/1.0", label=f"{base_url}/1.0"
-            )
+            r = _retrying_request(self.client, "GET", "/1.0", label=f"{base_url}/1.0")
             r.raise_for_status()
         except httpx.HTTPError as e:
             self.disconnect()

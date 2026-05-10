@@ -60,9 +60,7 @@ def _exec_handler(exec_responses, op_meta=None):
                 raise r
             return r
         if "/operations/" in request.url.path:
-            return httpx.Response(
-                200, json={"metadata": {"metadata": op_meta}}
-            )
+            return httpx.Response(200, json={"metadata": {"metadata": op_meta}})
         raise AssertionError(f"unexpected path {request.url.path}")
 
     handler.state = state  # type: ignore[attr-defined]
