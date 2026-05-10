@@ -91,3 +91,32 @@ def test_get_file_raises_on_http_error():
     conn = make_conn(handler)
     with pytest.raises(IOError, match="get_file"):
         conn.get_file("/etc/missing", io.BytesIO())
+
+
+def test_put_file_retries_on_5xx(no_sleep):
+    statuses = [503, 502, 200]
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status = statuses[len(calls)]
+        calls.append(status)
+        return httpx.Response(status)
+
+    conn = make_conn(handler)
+    assert conn.put_file(io.BytesIO(b"hi"), "/tmp/x") is True
+    assert calls == [503, 502, 200]
+
+
+def test_get_file_retries_on_request_error(no_sleep):
+    state = {"failures_left": 2}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if state["failures_left"] > 0:
+            state["failures_left"] -= 1
+            raise httpx.ConnectError("kaboom")
+        return httpx.Response(200, content=b"ok")
+
+    conn = make_conn(handler)
+    buf = io.BytesIO()
+    assert conn.get_file("/etc/hostname", buf) is True
+    assert buf.getvalue() == b"ok"

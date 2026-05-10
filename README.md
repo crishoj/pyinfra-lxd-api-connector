@@ -69,7 +69,7 @@ Alpha. In production use against a 32-container LXD cluster since 2026-04-28. Fe
 
 - **No interactive / PTY support** — the connector raises `NotImplementedError` if `_get_pty=True`. pyinfra never needs PTY for facts/operations, so this is fine in practice; if you need an interactive shell, use `lxc shell` directly.
 - **Per-command stdout/stderr is buffered, not streamed** — `record-output` mode means output arrives at the end of the command. For pyinfra's typical workload (facts and one-shot operations) this is invisible; for long-running commands you won't see live progress.
-- **Run-time HTTP calls (exec, file transfer) don't retry** — only the two `connect()` GETs retry on transient errors. Mid-run network blips on `run_shell_command` / `put_file` / `get_file` will fail the operation. Per-call retry there is operation-dependent (e.g. `POST /exec` is unsafe to blindly retry once it's reached the server). Tracked in [#2](https://github.com/crishoj/pyinfra-lxd-api-connector/issues/2).
+- **`POST /exec` retries only connect-class errors by default** — `run_shell_command` retries `ConnectError` / `ConnectTimeout` / `PoolTimeout` (the request provably never reached the server), but fails fast on `ReadTimeout` / 5xx, since the command may already be running on the container. File transfers (`put_file` / `get_file`) and the operation/output polls retry on any transient error. Set `lxd_exec_retry_on_read_errors=True` on a host (or globally) if all your deploy steps are independently idempotent and duplicate execution is safe.
 
 ## AI assistance
 

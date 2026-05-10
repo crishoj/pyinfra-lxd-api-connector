@@ -41,7 +41,7 @@ import os
 import ssl
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 import click
 import httpx
@@ -56,7 +56,7 @@ from pyinfra.connectors.util import (
     extract_control_arguments,
     make_unix_command_for_host,
 )
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import NotRequired, TypedDict, Unpack, override
 
 if TYPE_CHECKING:
     from pyinfra.api.arguments import ConnectorArguments
@@ -69,24 +69,40 @@ LXC_CONFIG_DIR = Path(os.path.expanduser("~/.config/lxc"))
 LXC_CONFIG_PATH = LXC_CONFIG_DIR / "config.yml"
 REQUIRED_API_EXTENSIONS = frozenset({"container_exec_recording"})
 
-# Retry policy for connect()-time API calls. A multi-host pyinfra
-# run shouldn't abort a target on the first transient blip — brief
-# 5xx responses or connection resets during cluster-side load are
-# common enough to need backoff. 4xx responses are permanent and
-# fail fast.
-CONNECT_RETRY_ATTEMPTS = 3
-CONNECT_RETRY_INITIAL_DELAY_S = 0.5
-CONNECT_RETRY_MULTIPLIER = 2.0
+# Retry policy for API calls. A multi-host pyinfra run shouldn't
+# abort a target on the first transient blip — brief 5xx responses
+# or connection resets during cluster-side load are common enough
+# to need backoff. 4xx responses are permanent and fail fast.
+RETRY_ATTEMPTS = 3
+RETRY_INITIAL_DELAY_S = 0.5
+RETRY_MULTIPLIER = 2.0
+
+# Connect-class request errors — failure modes that prove the
+# request never reached the server, so retrying is safe even for
+# non-idempotent operations like POST /exec.
+_CONNECT_CLASS_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+)
+
+RetryPolicy = Literal["idempotent", "connect_only"]
 
 
 class ConnectorData(TypedDict):
     lxd_container: str
     lxd_remote: str
+    lxd_exec_retry_on_read_errors: NotRequired[bool]
 
 
 connector_data_meta: dict[str, DataMeta] = {
     "lxd_container": DataMeta("LXD container name"),
     "lxd_remote": DataMeta("LXD remote name as configured in `lxc remote list`"),
+    "lxd_exec_retry_on_read_errors": DataMeta(
+        "Retry `POST /exec` on read/write errors (default: connect-class only). "
+        "Set when all deploy steps are independently idempotent — duplicate "
+        "command execution is then safe."
+    ),
 }
 
 
@@ -95,47 +111,64 @@ def show_warning() -> None:
     logger.warning("The @lxd_api connector is alpha — feedback welcome.")
 
 
-def _retrying_get(
+def _retrying_request(
     client: httpx.Client,
+    method: str,
     url: str,
     *,
     label: str,
+    retry_on: RetryPolicy = "idempotent",
+    **kwargs: Any,
 ) -> httpx.Response:
-    """GET with exponential backoff on transient errors.
+    """Issue an HTTP request with exponential backoff on transient errors.
 
-    Retries on `httpx.RequestError` (network-level: timeout,
-    connection reset, DNS) and 5xx responses. Returns the response
-    without calling `raise_for_status()` — the caller decides how
-    to interpret 4xx (some are expected, like 404 = no such
-    container).
+    Two retry policies:
+
+    - `idempotent` — retry on any `httpx.RequestError` and on 5xx
+      responses. Safe for GETs and for POSTs that overwrite (like
+      `POST /1.0/instances/{c}/files`).
+    - `connect_only` — retry only on connect-class errors
+      (`ConnectError` / `ConnectTimeout` / `PoolTimeout`) that
+      prove the request never reached the server. No 5xx retry.
+      The default for `POST /1.0/instances/{c}/exec` — once the
+      request has reached the server, the command may already be
+      running and a duplicate retry would re-execute it.
+
+    Returns the response without calling `raise_for_status()` — the
+    caller decides how to interpret 4xx (some are expected, like
+    404 = no such container).
 
     `label` is included in retry log lines for human debugging.
     """
-    delay = CONNECT_RETRY_INITIAL_DELAY_S
-    for attempt in range(1, CONNECT_RETRY_ATTEMPTS + 1):
-        last_attempt = attempt == CONNECT_RETRY_ATTEMPTS
+    delay = RETRY_INITIAL_DELAY_S
+    retry_errors: tuple[type[Exception], ...] = (
+        (httpx.RequestError,) if retry_on == "idempotent" else _CONNECT_CLASS_ERRORS
+    )
+    retry_5xx = retry_on == "idempotent"
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        last_attempt = attempt == RETRY_ATTEMPTS
         try:
-            response = client.get(url)
-        except httpx.RequestError as e:
+            response = client.request(method, url, **kwargs)
+        except retry_errors as e:
             if last_attempt:
                 raise
             logger.warning(
-                f"@lxd_api: transient error on GET {label} "
-                f"(attempt {attempt}/{CONNECT_RETRY_ATTEMPTS}): {e}; "
+                f"@lxd_api: transient error on {method} {label} "
+                f"(attempt {attempt}/{RETRY_ATTEMPTS}): {e}; "
                 f"retrying in {delay:.1f}s"
             )
             time.sleep(delay)
-            delay *= CONNECT_RETRY_MULTIPLIER
+            delay *= RETRY_MULTIPLIER
             continue
-        if response.status_code < 500 or last_attempt:
+        if not retry_5xx or response.status_code < 500 or last_attempt:
             return response
         logger.warning(
-            f"@lxd_api: transient {response.status_code} on GET {label} "
-            f"(attempt {attempt}/{CONNECT_RETRY_ATTEMPTS}); "
+            f"@lxd_api: transient {response.status_code} on {method} {label} "
+            f"(attempt {attempt}/{RETRY_ATTEMPTS}); "
             f"retrying in {delay:.1f}s"
         )
         time.sleep(delay)
-        delay *= CONNECT_RETRY_MULTIPLIER
+        delay *= RETRY_MULTIPLIER
     # The loop above always returns or raises on the final attempt.
     raise AssertionError("retry loop exited without returning")
 
@@ -273,7 +306,9 @@ class LxdApiConnector(BaseConnector):
         )
 
         try:
-            r = _retrying_get(self.client, "/1.0", label=f"{base_url}/1.0")
+            r = _retrying_request(
+                self.client, "GET", "/1.0", label=f"{base_url}/1.0"
+            )
             r.raise_for_status()
         except httpx.HTTPError as e:
             self.disconnect()
@@ -295,8 +330,9 @@ class LxdApiConnector(BaseConnector):
             )
 
         try:
-            r = _retrying_get(
+            r = _retrying_request(
                 self.client,
+                "GET",
                 f"/1.0/instances/{container}",
                 label=f"/1.0/instances/{container}",
             )
@@ -322,7 +358,12 @@ class LxdApiConnector(BaseConnector):
 
     def _operation_wait(self, op_id: str) -> dict:
         assert self.client is not None
-        r = self.client.get(f"/1.0/operations/{op_id}/wait")
+        r = _retrying_request(
+            self.client,
+            "GET",
+            f"/1.0/operations/{op_id}/wait",
+            label=f"/1.0/operations/{op_id}/wait",
+        )
         r.raise_for_status()
         return r.json().get("metadata", {})
 
@@ -361,9 +402,23 @@ class LxdApiConnector(BaseConnector):
             "interactive": False,
         }
 
+        # POST /exec is not idempotent — the command runs on the
+        # container as a side effect. Default to connect-class retry
+        # only (request never reached server). Opt into full retry
+        # via `lxd_exec_retry_on_read_errors` for deploys where
+        # duplicate execution is safe.
+        exec_retry: RetryPolicy = (
+            "idempotent"
+            if getattr(self.host.data, "lxd_exec_retry_on_read_errors", False)
+            else "connect_only"
+        )
         try:
-            r = self.client.post(
+            r = _retrying_request(
+                self.client,
+                "POST",
                 f"/1.0/instances/{container}/exec",
+                label=f"/1.0/instances/{container}/exec",
+                retry_on=exec_retry,
                 json=body,
             )
             r.raise_for_status()
@@ -395,7 +450,7 @@ class LxdApiConnector(BaseConnector):
         if not url:
             return ""
         assert self.client is not None
-        r = self.client.get(url)
+        r = _retrying_request(self.client, "GET", url, label=url)
         r.raise_for_status()
         return r.text
 
@@ -426,8 +481,13 @@ class LxdApiConnector(BaseConnector):
                 data = data.encode()
 
         try:
-            r = self.client.post(
+            # POST to /files overwrites — idempotent, safe to retry
+            # on any transient error.
+            r = _retrying_request(
+                self.client,
+                "POST",
                 f"/1.0/instances/{container}/files",
+                label=f"/1.0/instances/{container}/files put",
                 params={"path": remote_filename},
                 headers={
                     "X-LXD-uid": "0",
@@ -464,8 +524,11 @@ class LxdApiConnector(BaseConnector):
         container = self.host.data.lxd_container
 
         try:
-            r = self.client.get(
+            r = _retrying_request(
+                self.client,
+                "GET",
                 f"/1.0/instances/{container}/files",
+                label=f"/1.0/instances/{container}/files get",
                 params={"path": remote_filename},
             )
             r.raise_for_status()

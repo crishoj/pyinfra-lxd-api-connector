@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Run-time retry for all HTTP calls. `put_file` / `get_file`, the operation-wait poll, and per-command output fetches now retry on `httpx.RequestError` and 5xx, using the same exponential backoff (0.5s → 1s → 2s, 3 attempts) as `connect()`. `POST /1.0/instances/{c}/exec` retries only on connect-class errors (`ConnectError` / `ConnectTimeout` / `PoolTimeout`) where the request provably never reached the server — `ReadTimeout` / 5xx fail fast to avoid duplicate command execution. Closes [#2](https://github.com/crishoj/pyinfra-lxd-api-connector/issues/2).
+- Connector data field `lxd_exec_retry_on_read_errors` (bool, default `False`). Opt in to full idempotent retry of `POST /exec` for deploys where every step is independently idempotent.
+
 ## [0.1.1] — 2026-04-28
 
 ### Fixed
