@@ -108,7 +108,7 @@ connector_data_meta: dict[str, DataMeta] = {
 
 @memoize
 def show_warning() -> None:
-    logger.warning("The @lxd_api connector is alpha — feedback welcome.")
+    logger.warning("The @lxd_api connector is beta — feedback welcome.")
 
 
 def _retrying_request(

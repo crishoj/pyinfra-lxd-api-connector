@@ -63,7 +63,7 @@ A bare `@lxd_api/<container>` resolves the remote via the `default-remote` field
 
 ## Status
 
-Alpha. In production use against a 32-container LXD cluster since 2026-04-28. Feedback / bug reports welcome.
+Beta. In production use against a 32-container LXD cluster since 2026-04-28. Feedback / bug reports welcome.
 
 ## Known limitations
 

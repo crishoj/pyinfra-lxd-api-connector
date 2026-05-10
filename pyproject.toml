@@ -1,12 +1,28 @@
 [project]
 name = "pyinfra-lxd-api-connector"
-version = "0.1.1"
+version = "0.2.0"
 description = "pyinfra connector targeting LXD containers via the LXD HTTPS API (no SSH hop, no CLI subprocess, no websockets)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Christian Rishøj", email = "christian@rishoj.net" },
+]
+keywords = ["pyinfra", "lxd", "connector", "incus", "containers", "deployment"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: System :: Installation/Setup",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pyinfra>=3,<4",

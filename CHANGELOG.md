@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-10
+
+### Changed
+
+- Maturity bumped from Alpha to Beta after 12 days of uninterrupted production use against a 32-container LXD cluster. PyPI Trove classifier now `Development Status :: 4 - Beta`; in-process startup warning updated accordingly.
+
 ### Added
 
 - Run-time retry for all HTTP calls. `put_file` / `get_file`, the operation-wait poll, and per-command output fetches now retry on `httpx.RequestError` and 5xx, using the same exponential backoff (0.5s → 1s → 2s, 3 attempts) as `connect()`. `POST /1.0/instances/{c}/exec` retries only on connect-class errors (`ConnectError` / `ConnectTimeout` / `PoolTimeout`) where the request provably never reached the server — `ReadTimeout` / 5xx fail fast to avoid duplicate command execution. Closes [#2](https://github.com/crishoj/pyinfra-lxd-api-connector/issues/2).
 - Connector data field `lxd_exec_retry_on_read_errors` (bool, default `False`). Opt in to full idempotent retry of `POST /exec` for deploys where every step is independently idempotent.
+- PyPI Trove classifiers (Python 3.10–3.13, MIT, Linux, sysadmin/dev audience, `Typing :: Typed`) and `keywords` field for discoverability.
 
 ## [0.1.1] — 2026-04-28
 
@@ -38,6 +45,7 @@ First public release.
 - Run-time HTTP calls (`run_shell_command`, `put_file`, `get_file`) don't retry on transient errors. Tracked in [#2](https://github.com/crishoj/pyinfra-lxd-api-connector/issues/2).
 - No unix-socket transport for local LXD — currently requires an `https://` remote. Tracked in [#1](https://github.com/crishoj/pyinfra-lxd-api-connector/issues/1).
 
-[Unreleased]: https://github.com/crishoj/pyinfra-lxd-api-connector/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/crishoj/pyinfra-lxd-api-connector/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/crishoj/pyinfra-lxd-api-connector/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/crishoj/pyinfra-lxd-api-connector/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/crishoj/pyinfra-lxd-api-connector/releases/tag/v0.1.0
